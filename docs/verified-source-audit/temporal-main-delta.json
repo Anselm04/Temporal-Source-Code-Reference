@@ -1,0 +1,43 @@
+{
+  "upstream": "https://github.com/temporalio/temporal.git",
+  "pinned_commit": "98925be15707693868c3a900a5d41df126da7fdf",
+  "destination_main_sha": "6d9f985419b7da0b876ea1e68f07d3e1eb587fc5",
+  "upstream_tracked_entries": 4198,
+  "destination_tracked_entries": 4176,
+  "missing_paths": [
+    ".github/workflows/auto-approve-cicd-release-pr.yml",
+    ".github/workflows/build-and-publish.yml",
+    ".github/workflows/check-pr-placeholders.yml",
+    ".github/workflows/check-release-dependencies.yml",
+    ".github/workflows/ci-success-report.yml",
+    ".github/workflows/claude-review-teams.yml",
+    ".github/workflows/docker-build-manual.yml",
+    ".github/workflows/features-integration.yml",
+    ".github/workflows/flaky-tests-report.yml",
+    ".github/workflows/govulncheck.yml",
+    ".github/workflows/linters.yml",
+    ".github/workflows/notify-new-go-mod.yml",
+    ".github/workflows/optimize-test-sharding.yml",
+    ".github/workflows/promote-admin-tools-image.yml",
+    ".github/workflows/promote-docker-image.yml",
+    ".github/workflows/promote-server-image.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/run-single-test.yml",
+    ".github/workflows/run-tests.yml",
+    ".github/workflows/stale.yml",
+    ".github/workflows/testx-bump.yml",
+    ".github/workflows/testx.yml",
+    ".github/workflows/trigger-api-release.yml",
+    ".github/workflows/trigger-version-info-service.yml"
+  ],
+  "missing_path_count": 24,
+  "missing_upstream_ci_count": 24,
+  "missing_other_count": 0,
+  "mismatched_objects": [],
+  "mismatched_count": 0,
+  "extra_paths": [
+    ".github/workflows/audit-source-once.yml",
+    "TRILLIONAI_REFERENCE.md"
+  ],
+  "extra_count": 2
+}
