@@ -1,0 +1,152 @@
+{
+  "source": "https://github.com/temporalio/temporal.git",
+  "commit": "98925be15707693868c3a900a5d41df126da7fdf",
+  "number_of_original_workflow_files": 24,
+  "original_ci_is_disabled": true,
+  "files": [
+    {
+      "upstream_path": ".github/workflows/auto-approve-cicd-release-pr.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/auto-approve-cicd-release-pr.yml",
+      "git_blob": "d73cbcef1dd2410fbc6747879ba530b86118a6df",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/build-and-publish.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/build-and-publish.yml",
+      "git_blob": "9b734ae54bb395e3aa659a286fe53309c227099b",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/check-pr-placeholders.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/check-pr-placeholders.yml",
+      "git_blob": "ae5779353a6bdceedfd9830f648653feda899660",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/check-release-dependencies.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/check-release-dependencies.yml",
+      "git_blob": "277f21e3b9f1b374776e45f015f0853ed519a4e8",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/ci-success-report.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/ci-success-report.yml",
+      "git_blob": "040f6e00d69b32a0ef8c3a1858c1b55b9a647c48",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/claude-review-teams.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/claude-review-teams.yml",
+      "git_blob": "2722ab8e64179ccef3681fa468830d14dbffaf89",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/docker-build-manual.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/docker-build-manual.yml",
+      "git_blob": "bfd5b91df98532efd2228b563c0de8126f7f7b50",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/features-integration.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/features-integration.yml",
+      "git_blob": "81a1e5de13c16b3425e5d1d5c73fd3d599c7fef3",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/flaky-tests-report.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/flaky-tests-report.yml",
+      "git_blob": "db5d6ab316047d2b401f82ee0fab07488ae9eb7a",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/govulncheck.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/govulncheck.yml",
+      "git_blob": "9bfa11e0b7501b56d93392e4dca13a35013987cc",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/linters.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/linters.yml",
+      "git_blob": "310420c86f4b0416ada97ce5f81507b85f6c10d4",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/notify-new-go-mod.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/notify-new-go-mod.yml",
+      "git_blob": "33f4c5bdeea38682dc2f2c928244fdd79050fc30",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/optimize-test-sharding.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/optimize-test-sharding.yml",
+      "git_blob": "ccfa9ae454722f2907fb5a9e808e252ad4bee724",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/promote-admin-tools-image.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/promote-admin-tools-image.yml",
+      "git_blob": "cbe98019e9f2516525606c2c48ebbf661a90d4af",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/promote-docker-image.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/promote-docker-image.yml",
+      "git_blob": "02f86b4d9b4121c2e8911639ebb56fd9365c4e81",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/promote-server-image.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/promote-server-image.yml",
+      "git_blob": "5ea7c36124d20524f60c6b33025e1de5765ae8ae",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/release.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/release.yml",
+      "git_blob": "8033f5ab0efcbe1ffe8e8179b41b8c64d9f7a825",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/run-single-test.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/run-single-test.yml",
+      "git_blob": "ce47aa05c5cde6bab76b4a35aeaa399aa19bb454",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/run-tests.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/run-tests.yml",
+      "git_blob": "ca8dc7fabf9dc6f59b6b40d0751434007fc912c3",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/stale.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/stale.yml",
+      "git_blob": "8f251e763d3a16b6fe587b041838bae508afc0ae",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/testx-bump.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/testx-bump.yml",
+      "git_blob": "d9f6bc2502474c705e4c7ccce3730db80d1de28a",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/testx.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/testx.yml",
+      "git_blob": "c88131f603ffffc8a1ca57fe49cbd84d365ddd84",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/trigger-api-release.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/trigger-api-release.yml",
+      "git_blob": "00339ee4ea9b0972afb2aae01bcd0948647507fd",
+      "original_mode": "100644"
+    },
+    {
+      "upstream_path": ".github/workflows/trigger-version-info-service.yml",
+      "reference_path": "upstream-workflow-snapshots/temporal/.github/workflows/trigger-version-info-service.yml",
+      "git_blob": "968badfa75f67ca26a2d88f88c2cf11ea7841d0b",
+      "original_mode": "100644"
+    }
+  ]
+}
