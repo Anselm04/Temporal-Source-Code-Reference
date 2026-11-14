@@ -1,0 +1,339 @@
+package replication
+
+import (
+	"math/rand"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	historyspb "go.temporal.io/server/api/history/v1"
+	persistencespb "go.temporal.io/server/api/persistence/v1"
+	"go.temporal.io/server/common/clock"
+	"go.temporal.io/server/common/dynamicconfig"
+	"go.temporal.io/server/common/log"
+	"go.temporal.io/server/common/metrics"
+	"go.temporal.io/server/common/metrics/metricstest"
+	"go.temporal.io/server/common/persistence/versionhistory"
+	"go.temporal.io/server/common/testing/await"
+	"go.temporal.io/server/common/testing/protorequire"
+	"go.temporal.io/server/service/history/configs"
+	"go.temporal.io/server/service/history/shard"
+	"go.temporal.io/server/service/history/tests"
+	"go.uber.org/mock/gomock"
+)
+
+var compareProgress = cmp.AllowUnexported(ReplicationProgress{})
+
+type (
+	progressCacheSuite struct {
+		suite.Suite
+		*require.Assertions
+		protorequire.ProtoAssertions
+
+		controller *gomock.Controller
+		mockShard  *shard.ContextTest
+
+		shardContext  *shard.ContextTest
+		progressCache ProgressCache
+		namespaceID   string
+		workflowID    string
+		runID         string
+	}
+)
+
+func TestWorkflowCacheSuite(t *testing.T) {
+	s := new(progressCacheSuite)
+	suite.Run(t, s)
+}
+
+func (s *progressCacheSuite) SetupSuite() {
+}
+
+func (s *progressCacheSuite) TearDownSuite() {
+}
+
+func (s *progressCacheSuite) SetupTest() {
+	s.Assertions = require.New(s.T())
+
+	s.controller = gomock.NewController(s.T())
+	s.mockShard = shard.NewTestContext(
+		s.controller,
+		&persistencespb.ShardInfo{
+			ShardId: 0,
+			RangeId: 1,
+		},
+		tests.NewDynamicConfig(),
+	)
+
+	s.mockShard.Resource.ClusterMetadata.EXPECT().IsGlobalNamespaceEnabled().Return(false).AnyTimes()
+
+	s.shardContext = shard.NewTestContext(
+		s.controller,
+		&persistencespb.ShardInfo{
+			ShardId: 0,
+			RangeId: 1,
+			Owner:   "test-shard-owner",
+		},
+		tests.NewDynamicConfig(),
+	)
+	s.progressCache = NewProgressCache(s.shardContext.GetConfig(), s.mockShard.GetLogger(), metrics.NoopMetricsHandler)
+	s.namespaceID = tests.NamespaceID.String()
+	s.workflowID = uuid.NewString()
+	s.runID = uuid.NewString()
+
+}
+
+func (s *progressCacheSuite) TearDownTest() {
+	s.controller.Finish()
+	s.mockShard.StopForTest()
+}
+
+func (s *progressCacheSuite) TestProgressCache() {
+	targetClusterID := rand.Int31()
+	firstEventID := int64(999)
+	versionedTransition := &persistencespb.VersionedTransition{
+		NamespaceFailoverVersion: 80,
+		TransitionCount:          10,
+	}
+	versionedTransitions := []*persistencespb.VersionedTransition{versionedTransition}
+	versionHistoryItems := []*historyspb.VersionHistoryItem{
+		versionhistory.NewVersionHistoryItem(firstEventID, versionedTransition.NamespaceFailoverVersion),
+	}
+	expected := &ReplicationProgress{
+		versionedTransitions:       [][]*persistencespb.VersionedTransition{versionedTransitions},
+		eventVersionHistoryItems:   [][]*historyspb.VersionHistoryItem{versionHistoryItems},
+		lastVersionTransitionIndex: 0,
+	}
+
+	// get non-existing progress
+	cachedProgress := s.progressCache.Get(s.runID, targetClusterID)
+	s.Nil(cachedProgress)
+
+	err := s.progressCache.Update(s.runID, targetClusterID, versionedTransitions, versionHistoryItems)
+	s.NoError(err)
+
+	// get existing progress
+	cachedProgress = s.progressCache.Get(s.runID, targetClusterID)
+	s.DeepEqual(expected, cachedProgress, compareProgress)
+
+	// update existing versioned transition and version history
+	versionedTransitions2 := []*persistencespb.VersionedTransition{
+		{
+			NamespaceFailoverVersion: 80,
+			TransitionCount:          20,
+		},
+	}
+	versionHistoryItems2 := []*historyspb.VersionHistoryItem{
+		versionhistory.NewVersionHistoryItem(firstEventID+1, versionedTransition.NamespaceFailoverVersion),
+	}
+	err = s.progressCache.Update(s.runID, targetClusterID, versionedTransitions2, versionHistoryItems2)
+	s.NoError(err)
+
+	expected2 := &ReplicationProgress{
+		versionedTransitions:         [][]*persistencespb.VersionedTransition{versionedTransitions2},
+		eventVersionHistoryItems:     [][]*historyspb.VersionHistoryItem{versionHistoryItems2},
+		lastVersionTransitionIndex:   0,
+		lastEventVersionHistoryIndex: 0,
+	}
+	cachedProgress = s.progressCache.Get(s.runID, targetClusterID)
+	s.DeepEqual(expected2, cachedProgress, compareProgress)
+
+	// add new versioned transition and version history
+	versionedTransitions3 := []*persistencespb.VersionedTransition{
+		{
+			NamespaceFailoverVersion: 90,
+			TransitionCount:          15,
+		},
+	}
+	versionHistoryItems3 := []*historyspb.VersionHistoryItem{
+		versionhistory.NewVersionHistoryItem(firstEventID, versionedTransition.NamespaceFailoverVersion),
+		versionhistory.NewVersionHistoryItem(firstEventID+1, versionedTransition.NamespaceFailoverVersion+1),
+	}
+	err = s.progressCache.Update(s.runID, targetClusterID, versionedTransitions3, versionHistoryItems3)
+	s.NoError(err)
+
+	expected3 := &ReplicationProgress{
+		versionedTransitions:         [][]*persistencespb.VersionedTransition{versionedTransitions2, versionedTransitions3},
+		eventVersionHistoryItems:     [][]*historyspb.VersionHistoryItem{versionHistoryItems2, versionHistoryItems3},
+		lastVersionTransitionIndex:   1,
+		lastEventVersionHistoryIndex: 1,
+	}
+	cachedProgress = s.progressCache.Get(s.runID, targetClusterID)
+	s.DeepEqual(expected3, cachedProgress, compareProgress)
+
+	// noop update: versioned transition and version history are already included in the existing progress
+	err = s.progressCache.Update(s.runID, targetClusterID, versionedTransitions, versionHistoryItems)
+	s.NoError(err)
+
+	cachedProgress = s.progressCache.Get(s.runID, targetClusterID)
+	s.DeepEqual(expected3, cachedProgress, compareProgress)
+}
+
+// TestProgressCache_ConcurrentGetAndUpdate verifies a progress returned by Get can be read while Update runs. The stream
+// sender reads progress via VersionedTransitionSent while SyncWorkflowState calls Update for the same run. Run with
+// -race: the race detector fails this test if Update mutates a progress that Get already handed out.
+func (s *progressCacheSuite) TestProgressCache_ConcurrentGetAndUpdate() {
+	targetClusterID := rand.Int31()
+	seed := &persistencespb.VersionedTransition{NamespaceFailoverVersion: 80, TransitionCount: 1}
+	s.NoError(s.progressCache.Update(s.runID, targetClusterID, []*persistencespb.VersionedTransition{seed}, nil))
+
+	const iterations = 1000
+	var (
+		wg        sync.WaitGroup
+		updateErr error
+		unsent    int
+	)
+	wg.Go(func() {
+		for i := range iterations {
+			if err := s.progressCache.Update(s.runID, targetClusterID, []*persistencespb.VersionedTransition{
+				{NamespaceFailoverVersion: 80, TransitionCount: int64(i + 2)},
+			}, nil); err != nil {
+				updateErr = err
+				return
+			}
+		}
+	})
+	wg.Go(func() {
+		for range iterations {
+			if !s.progressCache.Get(s.runID, targetClusterID).VersionedTransitionSent(seed) {
+				unsent++
+			}
+		}
+	})
+	wg.Wait()
+
+	s.NoError(updateErr)
+	s.Zero(unsent, "seed transition should always be reported as sent")
+}
+
+func TestProgressCacheUsesDistinctMetricsTag(t *testing.T) {
+	// Verify that the progress cache uses its own cache_type tag value
+	// ("replication_progress") rather than the mutable state cache's tag value
+	// ("mutablestate"), preventing Prometheus gauge collision. See #9600.
+	ctrl := gomock.NewController(t)
+	mockShard := shard.NewTestContext(
+		ctrl,
+		&persistencespb.ShardInfo{
+			ShardId: 0,
+			RangeId: 1,
+		},
+		tests.NewDynamicConfig(),
+	)
+	defer ctrl.Finish()
+	defer mockShard.StopForTest()
+
+	metricsHandler := metricstest.NewCaptureHandler()
+	capture := metricsHandler.StartCapture()
+
+	NewProgressCache(mockShard.GetConfig(), mockShard.GetLogger(), metricsHandler)
+
+	snapshot := capture.Snapshot()
+	cacheSizeRecordings := snapshot[metrics.CacheSize.Name()]
+	require.NotEmpty(t, cacheSizeRecordings, "expected cache_size metric to be recorded")
+
+	// Verify the cache_type tag is "replication_progress", not "mutablestate"
+	found := false
+	for _, recording := range cacheSizeRecordings {
+		if tag, ok := recording.Tags[metrics.CacheTypeTagName]; ok {
+			require.Equal(t, metrics.ReplicationProgressCacheTypeTagValue, tag,
+				"progress cache should use ReplicationProgressCacheTypeTagValue, not MutableStateCacheTypeTagValue")
+			found = true
+		}
+	}
+	require.True(t, found, "expected cache_size metric with cache_type tag")
+}
+
+func TestProgressCacheAppliesDynamicSize(t *testing.T) {
+	t.Parallel()
+	logger := log.NewNoopLogger()
+	client := dynamicconfig.NewMemoryClient()
+	dc := dynamicconfig.NewCollection(client, logger)
+	transitions := []*persistencespb.VersionedTransition{{NamespaceFailoverVersion: 1, TransitionCount: 1}}
+	entrySize := (&ReplicationProgress{versionedTransitions: [][]*persistencespb.VersionedTransition{transitions}}).CacheSize()
+	t.Cleanup(client.OverrideSetting(dynamicconfig.ReplicationProgressCacheMaxSize, entrySize))
+	handler := metricstest.NewCaptureHandler()
+	capture := handler.StartCapture()
+	c := NewProgressCache(&configs.Config{
+		ReplicationProgressCacheMaxSize: dynamicconfig.ReplicationProgressCacheMaxSize.Get(dc),
+		ReplicationProgressCacheTTL:     func() time.Duration { return time.Hour },
+	}, logger, handler).(*progressCacheImpl)
+	timeSource := clock.NewEventTimeSource()
+	c.timeSource = timeSource
+	c.Start()
+	t.Cleanup(c.Stop)
+
+	waitForTimer := func() {
+		await.RequireTrue(t, func() bool { return timeSource.NumTimers() == 1 }, time.Second, time.Millisecond)
+	}
+	waitForTimer()
+	for i, size := range []int{2 * entrySize, entrySize, 0, entrySize} {
+		require.NoError(t, c.Update("a", 1, transitions, nil))
+		t.Cleanup(client.OverrideSetting(dynamicconfig.ReplicationProgressCacheMaxSize, size))
+		if i != 3 {
+			require.NotNil(t, c.Get("a", 1), "reads must not apply capacity changes before the background check")
+		}
+		timeSource.Advance(time.Minute)
+		await.RequireTrue(t, func() bool {
+			return len(capture.SnapshotMetric(metrics.CacheSize.Name())) == i+2
+		}, time.Second, time.Millisecond)
+		waitForTimer()
+		require.Nil(t, c.Get("a", 1), "a size change must discard cached progress")
+		recordings := capture.SnapshotMetric(metrics.CacheSize.Name())
+		require.InDelta(t, float64(size), recordings[len(recordings)-1].Value, 0)
+		recordings = capture.SnapshotMetric(metrics.CacheUsage.Name())
+		require.InDelta(t, float64(0), recordings[len(recordings)-1].Value, 0)
+
+		require.NoError(t, c.Update("a", 1, transitions, nil))
+		timeSource.Advance(time.Minute)
+		waitForTimer()
+		if size == 0 {
+			require.Nil(t, c.Get("a", 1))
+		} else {
+			require.NotNil(t, c.Get("a", 1), "an unchanged size must preserve progress")
+		}
+		require.Len(t, capture.SnapshotMetric(metrics.CacheSize.Name()), i+2)
+	}
+	c.Stop()
+	require.Zero(t, timeSource.NumTimers(), "shutdown must stop the background timer")
+}
+
+func TestProgressCacheConcurrentReplacement(t *testing.T) {
+	t.Parallel()
+	client := dynamicconfig.NewMemoryClient()
+	dc := dynamicconfig.NewCollection(client, log.NewNoopLogger())
+	c := NewProgressCache(&configs.Config{
+		ReplicationProgressCacheMaxSize: dynamicconfig.ReplicationProgressCacheMaxSize.Get(dc),
+		ReplicationProgressCacheTTL:     func() time.Duration { return time.Hour },
+	}, log.NewNoopLogger(), metrics.NoopMetricsHandler).(*progressCacheImpl)
+	transitions := []*persistencespb.VersionedTransition{{NamespaceFailoverVersion: 1, TransitionCount: 1}}
+	var wg sync.WaitGroup
+	errors := make(chan error, 1)
+	wg.Go(func() {
+		for i := range 100 {
+			undo := client.OverrideSetting(dynamicconfig.ReplicationProgressCacheMaxSize, 128000+i)
+			c.refreshCache()
+			undo()
+		}
+	})
+	wg.Go(func() {
+		for range 100 {
+			if err := c.Update("a", 1, transitions, nil); err != nil {
+				errors <- err
+				return
+			}
+			c.Get("a", 1)
+		}
+	})
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		require.NoError(t, err)
+	}
+	c.refreshCache()
+	require.NoError(t, c.Update("a", 1, transitions, nil))
+	require.NotNil(t, c.Get("a", 1))
+}

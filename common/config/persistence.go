@@ -1,0 +1,238 @@
+package config
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"go.temporal.io/server/common/persistence/visibility/store/elasticsearch/esconfig"
+)
+
+const (
+	// StoreTypeSQL refers to sql based storage as persistence store
+	StoreTypeSQL = "sql"
+	// StoreTypeNoSQL refers to nosql based storage as persistence store
+	StoreTypeNoSQL = "nosql"
+)
+
+var ErrPersistenceConfig = errors.New("persistence config error")
+
+// DefaultStoreType returns the storeType for the default persistence store
+func (c *Persistence) DefaultStoreType() string {
+	if c.DataStores[c.DefaultStore].SQL != nil {
+		return StoreTypeSQL
+	}
+	return StoreTypeNoSQL
+}
+
+// Validate validates the persistence config
+func (c *Persistence) Validate() error {
+	stores := []string{c.DefaultStore}
+	if c.VisibilityStore != "" {
+		stores = append(stores, c.VisibilityStore)
+	}
+	if c.SecondaryVisibilityStore != "" {
+		stores = append(stores, c.SecondaryVisibilityStore)
+	}
+
+	// There are 3 config keys:
+	// - visibilityStore: can set any data store
+	// - secondaryVisibilityStore: can set any data store
+	// If visibilityStore is set, then it's always the primary.
+	// If secondaryVisibilityStore is set, it's always the secondary.
+	//
+	// Valid dual visibility combinations (order: primary, secondary):
+	// - visibilityStore (advanced sql),  secondaryVisibilityStore (advanced sql)
+	// - visibilityStore (es),            visibilityStore (es) [via elasticsearch.indices config]
+	// - visibilityStore (es),            secondaryVisibilityStore (es)
+	//
+	// Invalid dual visibility combinations:
+	// - visibilityStore (advanced sql),  secondaryVisibilityStore (es)
+	// - visibilityStore (es),            secondaryVisibilityStore (advanced sql)
+
+	if c.VisibilityStore == "" {
+		return fmt.Errorf("%w: visibilityStore must be specified", ErrPersistenceConfig)
+	}
+	if c.SecondaryVisibilityStore != "" {
+		isAnyCustom := c.DataStores[c.VisibilityStore].CustomDataStoreConfig != nil ||
+			c.DataStores[c.SecondaryVisibilityStore].CustomDataStoreConfig != nil
+		isPrimaryEs := c.DataStores[c.VisibilityStore].Elasticsearch != nil
+		isSecondaryEs := c.DataStores[c.SecondaryVisibilityStore].Elasticsearch != nil
+		if !isAnyCustom && isPrimaryEs != isSecondaryEs {
+			return fmt.Errorf(
+				"%w: cannot set visibilityStore and secondaryVisibilityStore with different datastore types",
+				ErrPersistenceConfig)
+		}
+		if c.DataStores[c.VisibilityStore].Elasticsearch.GetSecondaryVisibilityIndex() != "" {
+			return fmt.Errorf(
+				"%w: cannot set secondaryVisibilityStore "+
+					"when visibilityStore is setting Elasticsearch secondary visibility index",
+				ErrPersistenceConfig)
+		}
+		if c.DataStores[c.SecondaryVisibilityStore].Elasticsearch.GetSecondaryVisibilityIndex() != "" {
+			return fmt.Errorf(
+				"%w: secondary visibility datastore %q cannot set secondary_visibility",
+				ErrPersistenceConfig,
+				c.SecondaryVisibilityStore)
+		}
+	}
+
+	for _, st := range stores {
+		ds, ok := c.DataStores[st]
+		if !ok {
+			return fmt.Errorf("%w: missing config for datastore %q", ErrPersistenceConfig, st)
+		}
+		if err := ds.Validate(); err != nil {
+			return fmt.Errorf("%w: datastore %q: %s", ErrPersistenceConfig, st, err.Error())
+		}
+	}
+	return nil
+}
+
+// VisibilityConfigExist returns whether user specified visibilityStore in config
+func (c *Persistence) VisibilityConfigExist() bool {
+	return c.VisibilityStore != ""
+}
+
+// SecondaryVisibilityConfigExist returns whether user specified secondaryVisibilityStore in config
+func (c *Persistence) SecondaryVisibilityConfigExist() bool {
+	return c.SecondaryVisibilityStore != ""
+}
+
+func (c *Persistence) IsSQLVisibilityStore() bool {
+	return (c.VisibilityConfigExist() && c.DataStores[c.VisibilityStore].SQL != nil) ||
+		(c.SecondaryVisibilityConfigExist() && c.DataStores[c.SecondaryVisibilityStore].SQL != nil)
+}
+
+func (c *Persistence) IsCustomVisibilityStore() bool {
+	return c.GetVisibilityStoreConfig().CustomDataStoreConfig != nil ||
+		c.GetSecondaryVisibilityStoreConfig().CustomDataStoreConfig != nil
+}
+
+func (c *Persistence) GetVisibilityStoreConfig() DataStore {
+	return c.DataStores[c.VisibilityStore]
+}
+
+func (c *Persistence) GetSecondaryVisibilityStoreConfig() DataStore {
+	if c.SecondaryVisibilityStore != "" {
+		return c.DataStores[c.SecondaryVisibilityStore]
+	}
+	if c.VisibilityStore != "" {
+		ds := c.DataStores[c.VisibilityStore]
+		if ds.Elasticsearch != nil && ds.Elasticsearch.GetSecondaryVisibilityIndex() != "" {
+			esConfig := *ds.Elasticsearch
+			esConfig.Indices = map[string]string{
+				esconfig.VisibilityAppName: ds.Elasticsearch.GetSecondaryVisibilityIndex(),
+			}
+			ds.Elasticsearch = &esConfig
+			return ds
+		}
+	}
+	return DataStore{}
+}
+
+func (ds *DataStore) GetIndexName() string {
+	switch {
+	case ds.SQL != nil:
+		return ds.SQL.DatabaseName
+	case ds.Cassandra != nil:
+		return ds.Cassandra.Keyspace
+	case ds.Elasticsearch != nil:
+		return ds.Elasticsearch.GetVisibilityIndex()
+	case ds.CustomDataStoreConfig != nil:
+		return ds.CustomDataStoreConfig.IndexName
+	default:
+		return ""
+	}
+}
+
+// Validate validates the data store config
+func (ds *DataStore) Validate() error {
+	storeConfigCount := 0
+	if ds.SQL != nil {
+		storeConfigCount++
+	}
+	if ds.Cassandra != nil {
+		storeConfigCount++
+	}
+	if ds.CustomDataStoreConfig != nil {
+		storeConfigCount++
+	}
+	if ds.Elasticsearch != nil {
+		storeConfigCount++
+	}
+	if storeConfigCount != 1 {
+		return errors.New(
+			"must provide config for one and only one datastore: " +
+				"elasticsearch, cassandra, sql or custom store",
+		)
+	}
+
+	if ds.SQL != nil {
+		if ds.SQL.TaskScanPartitions == 0 {
+			ds.SQL.TaskScanPartitions = 1
+		}
+		if err := ds.SQL.validate(); err != nil {
+			return err
+		}
+	}
+	if ds.Cassandra != nil {
+		if err := validateCassandra(ds.Cassandra); err != nil {
+			return err
+		}
+	}
+	if ds.Elasticsearch != nil {
+		if err := validateElasticsearch(ds.Elasticsearch); err != nil {
+			return err
+		}
+		if err := ds.Elasticsearch.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *SQL) validate() error {
+	if c.PasswordCommand != nil && c.Password != "" {
+		return errors.New("passwordCommand and password are mutually exclusive")
+	}
+	if c.PasswordCommand != nil && c.PasswordCommand.Command == "" {
+		return errors.New("passwordCommand.command must not be empty")
+	}
+	return nil
+}
+
+const (
+	defaultPasswordCommandTimeout = 30 * time.Second
+	passwordCommandWaitDelay      = 5 * time.Second
+)
+
+// ResolvePassword returns the database password, either from the static Password
+// field or by executing PasswordCommand. If neither is set, it returns an empty string.
+func (c *SQL) ResolvePassword() (string, error) {
+	if c.PasswordCommand == nil {
+		return c.Password, nil
+	}
+	timeout := c.PasswordCommand.Timeout
+	if timeout == 0 {
+		timeout = defaultPasswordCommandTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, c.PasswordCommand.Command, c.PasswordCommand.Args...) //nolint:gosec
+	// WaitDelay caps how long we block on the stdout pipe after the process is killed.
+	// Without it, a subprocess that inherits the pipe could keep it open indefinitely.
+	cmd.WaitDelay = passwordCommandWaitDelay
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("passwordCommand %q %v failed: %w (stderr: %s)",
+			c.PasswordCommand.Command, c.PasswordCommand.Args, err, stderr.String())
+	}
+	return strings.TrimRight(string(out), "\n\r"), nil
+}
